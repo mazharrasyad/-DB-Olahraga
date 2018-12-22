@@ -4,7 +4,7 @@
 -- dropdb dbolahraga -U ti1
 -- psql dbolahraga -U ti1
 
--- Create Table Min 6 + Inheritance
+-- Table
 
 drop table if exists pengguna cascade;
 create table pengguna(
@@ -43,13 +43,14 @@ drop table if exists member cascade;
 create table member(
 id serial primary key,
 nama varchar(10) not null,
-diskon double precision
+cashback double precision
 );
 
 drop table if exists penyewa cascade;
 create table penyewa(
-member_id int references member(id),
 budget double precision,
+member_id int references member(id),
+gagal_booking int default 0,
 primary key(id)
 )inherits(pengguna);
 
@@ -62,18 +63,16 @@ tgl_book timestamp default current_timestamp
 
 drop table if exists history_penyewa cascade;
 create table history_penyewa(
-id serial primary key,
 penyewa_id int references penyewa(id),
-booking_id int references booking(id),
+booking_id int references booking(id) unique,
 member_id int references member(id),
 biaya double precision not null
 );
 
 drop table if exists history_pengelola cascade;
 create table history_pengelola(
-id serial primary key,
 pengelola_id int references pengelola(id),
-booking_id int references booking(id),
+booking_id int references booking(id) unique,
 pendapatan double precision not null
 );
 
@@ -87,7 +86,7 @@ harga double precision default 0,
 status varchar(10) default 'Pending'
 );
 
--- Insert Table
+-- Insert
 
 insert into pengelola values
 (default,'Ahmad','081290351971','ahmad@gmail.com','12345678901','GOR A','Depok',default,default),
@@ -113,26 +112,11 @@ insert into member values
 (3,'Emas',0.10);
 
 insert into penyewa values
-(default,'Rozzy','081290351974','rozzy@gmail.com',1,1000000),
-(default,'Enricho','081290351975','enricho@gmail.com',2,2000000),
-(default,'Alkalas','081290351976','alkalas@gmail.com',2,3000000);
+(default,'Rozzy','081290351974','rozzy@gmail.com',1000000,1,default),
+(default,'Enricho','081290351975','enricho@gmail.com',2000000,2,default),
+(default,'Alkalas','081290351976','alkalas@gmail.com',3000000,2,default);
 
--- Select Table
-
-select * from pengguna;
-select * from pengelola;
-select * from history_pengelola;
-select * from cabor;
-select * from fasilitas;
-select * from member;
-select * from penyewa;
-select * from history_penyewa;
-select * from booking;
-select * from booking_detail;
-
--- Procedure Min 4
-
--- Create Procedure
+-- Procedure
 
 drop function if exists buat_booking(int, int, timestamp, timestamp) cascade;
 create or replace function
@@ -219,7 +203,6 @@ $$
 	end
 $$ language plpgsql;
 
--- Development
 drop function if exists trasnfer(int, varchar) cascade;
 create or replace function
 transfer(int, varchar) 
@@ -235,11 +218,11 @@ $$
 		v_pengelola_id int;
 		v_fasilitas_id int;
 		v_member_id int;
-		v_diskon double precision;
+		v_cashback double precision;
 		v2_booking_id int;
 		v2_no_rek text;
 		v2_pengelola_id int;
-		v2_diskon double precision;
+		v2_cashback double precision;
 		i int;
 	begin			
 		select into v_status status from booking_detail where booking_id = v_booking_id;
@@ -250,7 +233,7 @@ $$
 		select into v_fasilitas_id fasilitas_id from booking_detail where booking_id = v_booking_id;
 		select into v2_pengelola_id pengelola_id from fasilitas where id = v_fasilitas_id;
 		select into v_member_id member_id from penyewa where id = v_penyewa_id;
-		select into v_diskon diskon from member where id = v_member_id;
+		select into v_cashback cashback from member where id = v_member_id;
 				
 		i = 0;
 		loop
@@ -292,16 +275,16 @@ $$
 							update booking_detail set status = 'Berhasil'
 							where booking_id = v_booking_id;
 
-							v2_diskon = v_harga * v_diskon;
+							v2_cashback = v_harga * v_cashback;
 						
-							update penyewa set budget = budget + v2_diskon
+							update penyewa set budget = budget + v2_cashback
 							where id = v_penyewa_id;
 						
 							insert into history_penyewa values
-							(default, v_penyewa_id, v_booking_id, v_member_id, v_harga - v2_diskon);
+							(v_penyewa_id, v_booking_id, v_member_id, v_harga - v2_cashback);
 						
 							insert into history_pengelola values
-							(default, v_pengelola_id, v_booking_id, v_harga);
+							(v_pengelola_id, v_booking_id, v_harga);
 						
 							return 'Transfer Berhasil';
 						else
@@ -337,6 +320,17 @@ $$
 			update penyewa set member_id = '2' where id = new.penyewa_id;
 		end if;
 		
+		return new;
+	end
+$$ language plpgsql;
+
+drop function if exists totalin_booking() cascade;
+create or replace function 
+totalin_booking() returns trigger as
+$$	
+	begin							
+		update pengelola set total_booking = total_booking + 1 
+		where id = new.pengelola_id;
 		return new;
 	end
 $$ language plpgsql;
@@ -390,46 +384,122 @@ $$
 	end
 $$ language plpgsql;
 
--- Batas waktu transfer
+drop function if exists batalin_booking() cascade;
+create or replace function 
+batalin_booking() returns trigger as
+$$	
+	begin							
+		update penyewa set gagal_booking = gagal_booking + 1 
+		where id = old.penyewa_id;
+		return old;
+	end
+$$ language plpgsql;
 
--- Trigger Min 4 + 2 Otomatis
+-- Trigger
 
-drop trigger trig_tingkat_member on history_penyewa;
+drop trigger if exists trig_tingkat_member on history_penyewa;
 create trigger trig_tingkat_member after
 insert on history_penyewa for each row
 execute procedure tingkat_member();
 
-drop trigger trig_proses_batal_booking on booking_detail;
+drop trigger if exists trig_totalin_booking on pengelola;
+create trigger trig_totalin_booking after
+insert on history_pengelola for each row
+execute procedure totalin_booking();
+
+drop trigger if exists trig_proses_batal_booking on booking_detail;
 create trigger trig_proses_batal_booking after
 delete on booking_detail for each row
 execute procedure proses_batal_booking();
 
--- Select Procedure
+drop trigger if exists trig_batalin_booking on booking;
+create trigger trig_batalin_booking after
+delete on booking for each row
+execute procedure batalin_booking();
+
+-- Select Table
+
+select * from pengguna;
+select * from pengelola;
+select * from history_pengelola;
+select * from cabor;
+select * from fasilitas;
+select * from member;
+select * from penyewa;
+select * from history_penyewa;
+select * from booking;
+select * from booking_detail;
+
+-- Transaction
+
+begin transaction
+
+-- Verifikasi Buat Booking
+savepoint sp1;
 select * from penyewa;
 select * from fasilitas;
+-- select buat_booking(penyewa_id, fasilitas_id, tgl_pinjam, tgl_selesai);
 select buat_booking(1,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
 select buat_booking(4,7,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+rollback to savepoint sp1;
+
+-- Testing Buat Booking
 select buat_booking(4,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(5,3,timestamp '2019-12-01 00:00:00',timestamp '2019-12-30 00:00:00');
 select buat_booking(6,6,timestamp '2019-12-01 00:00:00',timestamp '2019-12-04 00:00:00');
 select * from booking;
 select * from booking_detail;
 
+-- Verifikasi Transfer 1
+savepoint sp2;
 select * from penyewa;
 select * from pengelola;
-select * from booking_detail;
-select transfer(3,'12345678901');
+select * from booking;
+-- select transfer(booking_id, no_rek);
+select transfer(4,'12345678901');
 select transfer(1,'12345678001');
 select transfer(2,'12345678901');
-select transfer(2,'12345678903');
+select transfer(2,'12345678902');
+rollback to savepoint sp2;
+
+-- Testing Transfer
+select transfer(3,'12345678903');
+select * from booking_detail;
 select * from history_penyewa;
 select * from history_pengelola;
- 
+
+-- Verifikasi Transfer 2
+savepoint sp3;
+select transfer(3,'12345678903');
+rollback to savepoint sp3;
+
+-- Verifikasi Batal Booking
+savepoint sp4;
 select * from booking;
 select * from booking_detail;
-select batal_booking(1);
-
--- Transaction
-
-begin
+select batal_booking(3);
+rollback to savepoint sp4;
 	
-end
+-- Testing Batal Booking
+select batal_booking(2);
+savepoint sp5;	
+
+commit;
+
+-- Select Table
+
+select 
+penyewa.nama as penyewa,
+pengelola.nama as pengelola,
+nama_gor as gor,
+alamat_gor as alamat,
+cabor.nama as olahraga,
+booking_detail.tgl_pinjam,
+booking_detail.tgl_selesai,
+biaya
+from history_penyewa
+inner join penyewa on penyewa.id = history_penyewa.penyewa_id
+inner join booking_detail on booking_detail.booking_id = history_penyewa.booking_id
+inner join fasilitas on fasilitas.id = booking_detail.fasilitas_id
+inner join cabor on cabor.id = fasilitas.cabor_id
+inner join pengelola on pengelola.id = fasilitas.pengelola_id;
