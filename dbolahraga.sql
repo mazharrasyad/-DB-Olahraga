@@ -36,7 +36,8 @@ id serial primary key,
 pengelola_id int references pengelola(id),
 cabor_id int references cabor(id),
 harga_perjam double precision not null,
-harga_perhari double precision not null
+harga_perhari double precision not null,
+jml_lapangan int not null
 );
 
 drop table if exists member cascade;
@@ -50,6 +51,7 @@ drop table if exists penyewa cascade;
 create table penyewa(
 budget double precision,
 member_id int references member(id),
+berhasil_booking int default 0,
 gagal_booking int default 0,
 primary key(id)
 )inherits(pengguna);
@@ -76,6 +78,13 @@ booking_id int references booking(id) unique,
 pendapatan double precision not null
 );
 
+drop table if exists history_fasilitas cascade;
+create table history_fasilitas(
+fasilitas_id int references fasilitas(id),
+booking_id int references booking(id) unique,
+status varchar(10) default 'Pinjam'
+);
+
 drop table if exists booking_detail cascade;
 create table booking_detail(
 booking_id int references booking(id),
@@ -99,12 +108,12 @@ insert into cabor values
 (3,'Badminton');
 
 insert into fasilitas values
-(default,1,1,10000,100000),
-(default,1,2,20000,150000),
-(default,2,2,30000,200000),
-(default,2,3,40000,250000),
-(default,3,3,50000,300000),
-(default,3,1,60000,350000);
+(default,1,1,10000,100000,0),
+(default,1,2,20000,150000,2),
+(default,2,2,30000,200000,3),
+(default,2,3,40000,250000,4),
+(default,3,3,50000,300000,5),
+(default,3,1,60000,350000,6);
 
 insert into member values
 (1,'Perunggu',0.00),
@@ -132,6 +141,7 @@ $$
 		v_harga double precision;
 		v_harga_perjam double precision;
 		v_harga_perhari double precision;
+		v_jml_lapangan int;
 		hari double precision;
 		jam double precision;
 		v2_penyewa_id int;
@@ -141,17 +151,26 @@ $$
 	begin
 		select into v_id id from booking order by id desc limit 1;		
 		select into v_harga_perjam harga_perjam from fasilitas where id = v_fasilitas_id;
-		select into v_harga_perhari harga_perhari from fasilitas where id = v_fasilitas_id;				
+		select into v_harga_perhari harga_perhari from fasilitas where id = v_fasilitas_id;
+		select into v_jml_lapangan jml_lapangan from fasilitas where id = v_fasilitas_id;
 	
-		if date_part('day', (v_tgl_selesai - v_tgl_pinjam)) = 0 then
-			jam = date_part('hour', (v_tgl_selesai - v_tgl_pinjam));			
-			v_harga = v_harga_perjam * jam;
-			pesan = jam || ' Jam';
-		else
+		if date_part('day', (v_tgl_selesai - v_tgl_pinjam)) = 0 then		
+			jam = date_part('hour', (v_tgl_selesai - v_tgl_pinjam));
+				if 0 < jam then
+					v_harga = v_harga_perjam * jam;
+					pesan = jam || ' Jam';
+				else
+					raise exception 'Tanggal Booking Salah';
+				end if;
+		else			
 			hari = date_part('day', (v_tgl_selesai - v_tgl_pinjam));
-			hari = hari + 1;
-			v_harga = v_harga_perhari * hari;
-			pesan = hari || ' Hari';
+				if 0 < hari then
+					hari = hari + 1;
+					v_harga = v_harga_perhari * hari;
+					pesan = hari || ' Hari';
+				else
+					raise exception 'Tanggal Booking Salah';
+				end if;
 		end if;			
 		
 		if v_id is null then
@@ -190,10 +209,14 @@ $$
 			insert into booking values
 			(v_id, v_penyewa_id, default);
 		
-			if v_fasilitas_id = v2_fasilitas_id then
-				insert into booking_detail values
-				(v_id, v_fasilitas_id, v_tgl_pinjam, v_tgl_selesai, v_harga, default);
-				return 'Booking Berhasil Selama ' || pesan;
+			if v_fasilitas_id = v2_fasilitas_id then			
+				if 0 < v_jml_lapangan then 
+					insert into booking_detail values
+					(v_id, v_fasilitas_id, v_tgl_pinjam, v_tgl_selesai, v_harga, default);
+					return 'Booking Berhasil Selama ' || pesan;
+				else
+					raise exception 'Lapangan Tidak Tersedia';
+				end if;
 			else
 				raise exception 'ID Fasilitas Tidak Ada';
 			end if;
@@ -203,7 +226,7 @@ $$
 	end
 $$ language plpgsql;
 
-drop function if exists trasnfer(int, varchar) cascade;
+drop function if exists transfer(int, varchar) cascade;
 create or replace function
 transfer(int, varchar) 
 returns text as
@@ -272,6 +295,9 @@ $$
 							update pengelola set penghasilan = penghasilan + v_harga
 							where id = v_pengelola_id;
 						
+							update fasilitas set jml_lapangan = jml_lapangan - 1
+							where id = v_fasilitas_id;
+						
 							update booking_detail set status = 'Berhasil'
 							where booking_id = v_booking_id;
 
@@ -285,6 +311,9 @@ $$
 						
 							insert into history_pengelola values
 							(v_pengelola_id, v_booking_id, v_harga);
+						
+							insert into history_fasilitas values
+							(v_fasilitas_id, v_booking_id, default);
 						
 							return 'Transfer Berhasil';
 						else
@@ -395,6 +424,55 @@ $$
 	end
 $$ language plpgsql;
 
+drop function if exists selesai_booking(int) cascade; 
+create or replace function 
+selesai_booking(int) returns text as
+$$
+	declare
+		v_booking_id alias for $1;
+		v2_booking_id int;
+		v_fasilitas_id int;
+		v_penyewa_id int;
+		v_status text;
+		i int;
+	begin
+		i = 0;
+		loop
+			select into v2_booking_id booking_id from booking_detail limit 1 offset i;			
+			
+			if v_booking_id = v2_booking_id then				
+				exit;	
+			elseif v2_booking_id is null then
+				exit;
+			end if;			
+			
+			i = i + 1;				
+		end loop;
+		
+		if v_booking_id = v2_booking_id then
+			select into v_fasilitas_id fasilitas_id from booking_detail where booking_id = v_booking_id;
+			select into v_status status from booking_detail where booking_id = v_booking_id;			
+			select into v_penyewa_id penyewa_id from booking where id = v_booking_id;
+		
+			if v_status = 'Berhasil' then
+				update history_fasilitas set status = 'Selesai' 
+				where fasilitas_id = v_fasilitas_id and booking_id = v_booking_id;
+			
+				update penyewa set berhasil_booking = berhasil_booking + 1 
+				where id = v_penyewa_id;			
+			
+				update fasilitas set jml_lapangan = jml_lapangan + 1 
+				where id = v_fasilitas_id;
+				return 'Booking Selesai';
+			else
+				raise exception 'Status Booking Bukan Selesai';
+			end if;
+		else
+			raise exception 'ID Booking Tidak Ada';
+		end if;
+	end
+$$ language plpgsql;
+
 -- Trigger
 
 drop trigger if exists trig_tingkat_member on history_penyewa;
@@ -440,11 +518,13 @@ select * from penyewa;
 select * from fasilitas;
 -- select buat_booking(penyewa_id, fasilitas_id, tgl_pinjam, tgl_selesai);
 select buat_booking(1,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(4,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
 select buat_booking(4,7,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(4,2,timestamp '2019-12-02 00:00:00',timestamp '2019-12-01 00:00:00');
 rollback to savepoint sp1;
 
 -- Testing Buat Booking
-select buat_booking(4,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(4,2,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
 select buat_booking(5,3,timestamp '2019-12-01 00:00:00',timestamp '2019-12-30 00:00:00');
 select buat_booking(6,6,timestamp '2019-12-01 00:00:00',timestamp '2019-12-04 00:00:00');
 select * from booking;
@@ -464,9 +544,11 @@ rollback to savepoint sp2;
 
 -- Testing Transfer
 select transfer(3,'12345678903');
+select * from fasilitas;
 select * from booking_detail;
 select * from history_penyewa;
 select * from history_pengelola;
+select * from history_fasilitas;
 
 -- Verifikasi Transfer 2
 savepoint sp3;
@@ -484,7 +566,30 @@ rollback to savepoint sp4;
 select batal_booking(2);
 savepoint sp5;	
 
+-- Verifikasi Selesai Booking
+select * from booking;
+select * from booking_detail;
+select selesai_booking(4);
+rollback to savepoint sp5;
+
+-- Testing Selesai Booking
+select selesai_booking(3);
+select * from history_fasilitas;
+select * from fasilitas;
+savepoint sp6;	
+
 commit;
+rollback;
+
+begin transaction;
+select buat_booking(4,2,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(5,3,timestamp '2019-12-01 00:00:00',timestamp '2019-12-30 00:00:00');
+select buat_booking(6,6,timestamp '2019-12-01 00:00:00',timestamp '2019-12-04 00:00:00');
+select transfer(3,'12345678903');
+select batal_booking(2);
+select selesai_booking(3);
+commit;
+rollback;
 
 -- Select Table
 
