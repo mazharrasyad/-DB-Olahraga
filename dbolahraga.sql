@@ -292,7 +292,9 @@ $$
 							update penyewa set budget = budget - v_harga
 							where id = v_penyewa_id;
 						
-							update pengelola set penghasilan = penghasilan + v_harga
+							update pengelola set 
+							penghasilan = penghasilan + v_harga,
+							total_booking = total_booking + 1
 							where id = v_pengelola_id;
 						
 							update fasilitas set jml_lapangan = jml_lapangan - 1
@@ -313,7 +315,7 @@ $$
 							(v_pengelola_id, v_booking_id, v_harga);
 						
 							insert into history_fasilitas values
-							(v_fasilitas_id, v_booking_id, default);
+							(v_fasilitas_id, v_booking_id, default);													
 						
 							return 'Transfer Berhasil';
 						else
@@ -353,14 +355,21 @@ $$
 	end
 $$ language plpgsql;
 
-drop function if exists totalin_booking() cascade;
 create or replace function 
-totalin_booking() returns trigger as
-$$	
-	begin							
-		update pengelola set total_booking = total_booking + 1 
-		where id = new.pengelola_id;
-		return new;
+bonus() returns trigger as
+$$
+	begin			
+		if new.member_id = old.member_id then
+			return old;
+		else 
+			if new.member_id = 3 then
+				update penyewa set budget = budget + 100000 where id = old.id;
+			elseif new.member_id = 2 then
+				update penyewa set budget = budget + 50000 where id = old.id;
+			end if;
+			
+			return new;
+		end if;
 	end
 $$ language plpgsql;
 
@@ -480,10 +489,9 @@ create trigger trig_tingkat_member after
 insert on history_penyewa for each row
 execute procedure tingkat_member();
 
-drop trigger if exists trig_totalin_booking on pengelola;
-create trigger trig_totalin_booking after
-insert on history_pengelola for each row
-execute procedure totalin_booking();
+create trigger trig_bonus after
+update on penyewa for each row
+execute procedure bonus();
 
 drop trigger if exists trig_proses_batal_booking on booking_detail;
 create trigger trig_proses_batal_booking after
