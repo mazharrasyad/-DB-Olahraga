@@ -100,20 +100,28 @@ status varchar(10) default 'Pending'
 insert into pengelola values
 (default,'Ahmad','081290351971','ahmad@gmail.com','12345678901','GOR A','Depok',default,default),
 (default,'Azhar','081290351972','azhar@gmail.com','12345678902','GOR B','Cibinong',default,default),
-(default,'Rasyad','081290351973','rasyad@gmail.com','12345678903','GOR C','Citayam',default,default);
+(default,'Rasyad','081290351973','rasyad@gmail.com','12345678903','GOR C','Citayam',default,default),
+(default,'Rasaz','081290351974','rasaz@gmail.com','12345678904','GOR D','Cilebut',default,default),
+(default,'Mazhar','081290351975','mazhar@gmail.com','12345678905','GOR E','Bogor',default,default);
 
 insert into cabor values
 (1,'Basket'),
 (2,'Futsal'),
-(3,'Badminton');
+(3,'Badminton'),
+(4,'Voli'),
+(5,'Renang');
 
 insert into fasilitas values
-(default,1,1,10000,100000,0),
+(default,1,1,10000,100000,1),
 (default,1,2,20000,150000,2),
-(default,2,2,30000,200000,3),
-(default,2,3,40000,250000,4),
-(default,3,3,50000,300000,5),
-(default,3,1,60000,350000,6);
+(default,2,3,30000,200000,3),
+(default,2,4,40000,250000,4),
+(default,3,5,50000,300000,5),
+(default,3,1,60000,350000,1),
+(default,4,2,70000,400000,2),
+(default,4,3,80000,450000,3),
+(default,5,4,90000,500000,4),
+(default,5,5,100000,550000,5);
 
 insert into member values
 (1,'Perunggu',0.00),
@@ -123,7 +131,9 @@ insert into member values
 insert into penyewa values
 (default,'Rozzy','081290351974','rozzy@gmail.com',1000000,1,default),
 (default,'Enricho','081290351975','enricho@gmail.com',2000000,2,default),
-(default,'Alkalas','081290351976','alkalas@gmail.com',3000000,2,default);
+(default,'Alkalas','081290351976','alkalas@gmail.com',3000000,3,default),
+(default,'Fachrur','081290351977','fachrur@gmail.com',4000000,1,default),
+(default,'Dirza','081290351978','dirza@gmail.com',5000000,2,default);
 
 -- Procedure
 
@@ -524,17 +534,19 @@ begin transaction
 savepoint sp1;
 select * from penyewa;
 select * from fasilitas;
+
 -- select buat_booking(penyewa_id, fasilitas_id, tgl_pinjam, tgl_selesai);
 select buat_booking(1,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
-select buat_booking(4,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
-select buat_booking(4,7,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
-select buat_booking(4,2,timestamp '2019-12-02 00:00:00',timestamp '2019-12-01 00:00:00');
+select buat_booking(6,11,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(6,1,timestamp '2019-12-02 00:00:00',timestamp '2019-12-01 00:00:00');
 rollback to savepoint sp1;
 
 -- Testing Buat Booking
-select buat_booking(4,2,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
-select buat_booking(5,3,timestamp '2019-12-01 00:00:00',timestamp '2019-12-30 00:00:00');
-select buat_booking(6,6,timestamp '2019-12-01 00:00:00',timestamp '2019-12-04 00:00:00');
+select buat_booking(6,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(7,2,timestamp '2019-12-02 00:00:00',timestamp '2019-12-30 00:00:00');
+select buat_booking(8,3,timestamp '2019-12-03 00:00:00',timestamp '2019-12-04 00:00:00');
+select buat_booking(9,4,timestamp '2019-12-04 13:00:00',timestamp '2019-12-04 17:00:00');
+select buat_booking(10,5,timestamp '2019-12-05 08:00:00',timestamp '2019-12-05 12:00:00');
 select * from booking;
 select * from booking_detail;
 
@@ -543,24 +555,33 @@ savepoint sp2;
 select * from penyewa;
 select * from pengelola;
 select * from booking;
+select booking_id,no_rek from booking_detail
+inner join fasilitas on fasilitas_id = fasilitas.id
+inner join pengelola on pengelola_id = pengelola.id;
+
 -- select transfer(booking_id, no_rek);
-select transfer(4,'12345678901');
+select transfer(6,'12345678901');
 select transfer(1,'12345678001');
 select transfer(2,'12345678901');
 select transfer(2,'12345678902');
 rollback to savepoint sp2;
 
 -- Testing Transfer
-select transfer(3,'12345678903');
+select transfer(3,'12345678902');
+select transfer(4,'12345678902');
+select transfer(5,'12345678903');
 select * from fasilitas;
 select * from booking_detail;
 select * from history_penyewa;
+select * from penyewa;
 select * from history_pengelola;
+select * from pengelola;
 select * from history_fasilitas;
+select * from fasilitas;
 
 -- Verifikasi Transfer 2
 savepoint sp3;
-select transfer(3,'12345678903');
+select transfer(3,'12345678902');
 rollback to savepoint sp3;
 
 -- Verifikasi Batal Booking
@@ -571,13 +592,13 @@ select batal_booking(3);
 rollback to savepoint sp4;
 	
 -- Testing Batal Booking
-select batal_booking(2);
+select batal_booking(1);
 savepoint sp5;	
 
 -- Verifikasi Selesai Booking
 select * from booking;
 select * from booking_detail;
-select selesai_booking(4);
+select selesai_booking(2);
 rollback to savepoint sp5;
 
 -- Testing Selesai Booking
@@ -590,12 +611,16 @@ commit;
 rollback;
 
 begin transaction;
-select buat_booking(4,2,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
-select buat_booking(5,3,timestamp '2019-12-01 00:00:00',timestamp '2019-12-30 00:00:00');
-select buat_booking(6,6,timestamp '2019-12-01 00:00:00',timestamp '2019-12-04 00:00:00');
-select transfer(3,'12345678903');
+select buat_booking(6,2,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select buat_booking(7,3,timestamp '2019-12-01 00:00:00',timestamp '2019-12-30 00:00:00');
+select buat_booking(8,4,timestamp '2019-12-01 00:00:00',timestamp '2019-12-04 00:00:00');
+select transfer(5,'12345678902');
+select * from booking;
+select * from booking_detail;
+select * from penyewa;
+select * from history_penyewa;
 select batal_booking(2);
-select selesai_booking(3);
+select selesai_booking(1);
 commit;
 rollback;
 
@@ -616,3 +641,22 @@ inner join booking_detail on booking_detail.booking_id = history_penyewa.booking
 inner join fasilitas on fasilitas.id = booking_detail.fasilitas_id
 inner join cabor on cabor.id = fasilitas.cabor_id
 inner join pengelola on pengelola.id = fasilitas.pengelola_id;
+
+-- Studi Kasus
+
+begin transaction;
+
+select * from penyewa;
+select * from cabor;
+select * from fasilitas;
+select * from pengelola;
+select buat_booking(6,1,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select * from booking_detail;
+select batal_booking(2);
+select buat_booking(6,2,timestamp '2019-12-01 08:00:00',timestamp '2019-12-01 10:00:00');
+select transfer(1,'12345678901');
+select * from member;
+select * from booking_detail;
+select * from history_fasilitas;
+select * from selesai_booking(1);
+rollback;
